@@ -1,0 +1,60 @@
+---
+title: "FIN 452 Dynamic Portfolio"
+format: 
+  html:
+    embed-resources: true
+editor: visual
+---
+
+## 
+
+```{r, include = FALSE}
+
+library(tidyverse)
+library(rlang)
+library(quantmod)
+library(tidyquant)
+library(lubridate)
+library(gt)
+
+```
+
+### Data Wrangling
+
+```{r}
+
+tickers <- c("NVDA", "XOM", "AMZN", "WM")  # Example tickers in various industries
+weights <- c(0.25, 0.25, 0.25, 0.25)  # Corresponding weights
+initial_portfolio_value <- 100000    # Starting portfolio value
+start_date = "2015-01-01"
+end_date = rollback(Sys.Date(), roll_to_first = FALSE) # returns the last day of the prior month
+
+
+
+tidyquant::tq_get(tickers,
+                  get = "stock.prices",
+                  from = start_date,
+                  to = end_date)%>%
+  dplyr::select(symbol, date, open, close)%>%
+  dplyr::group_by(symbol) %>% 
+  dplyr::mutate(log_cc = log(close/lag(close)),
+                
+                log_oc = log(close/open),
+                
+                log_co = log(open/lag(close)),
+                
+                event = ifelse(lubridate::day(date) < lubridate::day(lag(date)),
+                               1, ifelse(lead(day(date)) < day(date),2,0))
+                )
+
+
+div_df <- quantmod::getDividends(tickers,
+                       from = start_date,
+                       to = end_date)
+
+
+
+
+```
+
+\
