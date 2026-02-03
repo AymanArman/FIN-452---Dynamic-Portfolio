@@ -1,0 +1,189 @@
+---
+title: "Dynamic Portfolio Adjustments"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyquant)
+library(tidyverse)
+library(purrr)
+library(rlang)
+library(lubridate)
+```
+
+```{r}
+tickers <- c("NVDA", "XOM", "AMZN", "WM")
+start_date <- as.Date("2015-01-01") - 1
+end_date <- Sys.Date()
+
+df <-
+tq_get(tickers, get = "stock.prices", complete_cases = TRUE) %>%
+    select(symbol, date, open, high, close) %>%
+    group_by(symbol)
+
+empty_prices <- tibble(
+  symbol = character(),
+  date   = as.Date(character()),
+  open   = double(),
+  high   = double(),
+  close  = double()
+)
+
+empty_splits <- tibble(
+  symbol = character(),
+  date   = as.Date(character()),
+  splits = double()
+)
+
+get_splits <- function(sym) {
+  x <- tryCatch(
+    tq_get(sym, get = "splits", complete_cases = FALSE),
+    warning = function(w) NULL,
+    error   = function(e) NULL
+  )
+  if (is.null(x) || nrow(x) == 0) empty_splits else {
+    x %>% transmute(symbol, date, splits = value)
+  }
+}
+
+df_splits <- map_dfr(tickers, get_splits)
+
+empty_dividends <- tibble(
+  symbol    = character(),
+  date      = as.Date(character()),
+  dividends = double()
+)
+
+get_dividends <- function(sym) {
+  x <- tryCatch(
+    tq_get(sym, get = "dividends", complete_cases = FALSE),
+    warning = function(w) NULL,
+    error   = function(e) NULL
+  )
+  if (is.null(x) || nrow(x) == 0) empty_dividends else {
+    x %>% transmute(symbol, date, dividends = value)
+  }
+}
+
+df_dividends <- map_dfr(tickers, get_dividends)
+
+daily_data <- df %>% 
+  left_join(df_dividends, by = c("symbol","date")) %>% 
+  left_join(df_splits,    by = c("symbol","date")) %>%
+  select(-high)
+  
+daily_data <- daily_data %>%
+  mutate(
+    dividends = replace_na(dividends, 0),
+    splits    = replace_na(splits, 1)
+  )
+
+daily_data <- daily_data %>%
+  group_by(symbol) %>%
+  arrange(date) %>%
+  mutate(
+    ret_co = open  / lag(close) - 1,
+    ret_cc = close / lag(close) - 1,
+    ret_oc = close / open - 1,
+  ) %>%
+  ungroup() %>%
+  drop_na() %>%
+  group_by(symbol, ym = floor_date(date, "month")) %>%
+  mutate(
+    month_flag = case_when(
+      date == min(date) ~ 1,
+      date == max(date) ~ 2,
+      TRUE ~ 0
+    )
+  ) %>%
+  ungroup() %>%
+  select(-ym)
+```
+
+```{r}
+tmp <- daily_data %>%
+  select(date, symbol, open, close, ret_co, ret_cc, ret_oc, dividends, splits, month_flag) %>%
+  group_by(symbol)
+
+stock_dfs <- tmp %>%
+  group_split(.keep = TRUE) %>%
+  set_names(tmp %>% group_keys() %>% pull(symbol)) %>%
+  map(\(d) {
+    sym <- d$symbol[1]
+    d %>%
+      select(-symbol) %>%
+      rename_with(~ paste0(sym, "_", .x), -date)
+  })
+
+portfolio_value0 <- 100000
+
+weights <- tibble::tribble(
+  ~symbol, ~target_weight,
+  "NVDA",  0.25,
+  "XOM",   0.25,
+  "AMZN",  0.25,
+  "WM",    0.25
+)
+
+wide_weights <- pivot_wider(weights, names_from = symbol, values_from = target_weight)
+
+stock_dfs <- purrr::imap(stock_dfs, ~ .x %>%
+  arrange(date) %>%
+  mutate(
+    stock_dollars = if_else(
+      row_number() == 1,
+      portfolio_value0 * wide_weights[[.y]],
+      NA_real_
+    ),
+    shares = if_else(
+      row_number() == 1,
+      floor(stock_dollars / .data[[paste0(.y, "_open")]]),
+      NA_real_
+    ),
+    cash = if_else(
+      row_number() == 1,
+      stock_dollars - shares * .data[[paste0(.y, "_open")]],
+      NA_real_
+    )
+  ) %>%
+  tidyr::fill(stock_dollars, shares, cash, .direction = "down") %>%
+  mutate(
+    dividends = shares * coalesce(.data[[paste0(.y, "_dividends")]], 0)
+  ) %>%
+  {
+    open_col <- paste0(.y, "_open")
+
+    st <- purrr::accumulate(
+      seq_len(nrow(.)),
+      .init = list(shares = .$shares[1], cash = .$cash[1]),
+      \(s, i) {
+        div_lag <- dplyr::lag(.$dividends, default = 0)[i]
+        cash1   <- s$cash + div_lag
+
+        buy <- floor(cash1 / .[[open_col]][i])
+
+        list(
+          shares = s$shares + buy,
+          cash   = cash1 - buy * .[[open_col]][i]
+        )
+      }
+    )
+
+    mutate(
+      .,
+      shares = purrr::map_dbl(st[-1], "shares"),
+      cash   = purrr::map_dbl(st[-1], "cash")
+    )
+  }
+)
+
+nvda_df <- stock_dfs[["NVDA"]]
+xom_df <- stock_dfs[["XOM"]]
+amzn_df <- stock_dfs[["AMZN"]]
+wm_df <- stock_dfs[["WM"]]
+```
+
+
+```{r}
+```
