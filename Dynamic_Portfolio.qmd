@@ -21,7 +21,7 @@ library(gt)
 
 ### Data Wrangling
 
-```{r}
+```{r, include = FALSE}
 
 tickers <- c("NVDA", "XOM", "AMZN", "WM")  # Example tickers in various industries
 weights <- c(0.25, 0.25, 0.25, 0.25)  # Corresponding weights
@@ -136,7 +136,7 @@ wide_df <- wide_df %>%
 
 ```
 
-```{r}
+```{r, include = FALSE}
 
 # At this point, I want the code to create a new column for each ticker to show allocation amounts in dollars. We can also show transactions for each ticker if its all done in the same for loop.
 
@@ -202,6 +202,25 @@ for(i in 1:nrow(wide_df)){
 
 
 
+
+
+
+```
+
+```{r, echo = FALSE}
+
+wide_df %>% 
+  dplyr::select("Date" = ym,
+                starts_with("ret."),
+                port_value,
+                tidyselect::ends_with("_alloc"),
+                tidyselect::ends_with("_transaction")) %>%
+  dplyr::mutate(across(-c(Date, starts_with("ret.")), ~round(.x, digits = 0))) %>% 
+  gt() %>% 
+  tab_header(., title = "Desired Output") %>% 
+  tab_style(style = cell_text(align = "center"),
+            locations = cells_title("title"))
+  
 
 
 
