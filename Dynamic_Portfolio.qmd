@@ -30,13 +30,18 @@ start_date = "2015-01-01"
 end_date = rollback(Sys.Date(), roll_to_first = FALSE) # returns the last day of the prior month
 
 
+weights_df <- tibble::tibble(symbol = tickers,
+                             weight = weights)%>%
+  dplyr::arrange(symbol)
 
-tidyquant::tq_get(tickers,
+
+long_df <- tidyquant::tq_get(tickers,
                   get = "stock.prices",
                   from = start_date,
                   to = end_date)%>%
   dplyr::select(symbol, date, open, close)%>%
   dplyr::group_by(symbol) %>% 
+  dplyr::arrange(symbol, date)%>%
   dplyr::mutate(log_cc = log(close/lag(close)),
                 
                 log_oc = log(close/open),
@@ -44,17 +49,82 @@ tidyquant::tq_get(tickers,
                 log_co = log(open/lag(close)),
                 
                 event = ifelse(lubridate::day(date) < lubridate::day(lag(date)),
-                               1, ifelse(lead(day(date)) < day(date),2,0))
+                               1, ifelse(lead(day(date)) < day(date),2,0)),
+                ret = ifelse(event == 1, log_cc, 
+                             ifelse(event == 2, log_co, log_cc))
                 )
 
 
-div_df <- quantmod::getDividends(tickers,
-                       from = start_date,
-                       to = end_date)
+#Portfolio value returns must be the weighted sum of returns of individual stocks within the portfolio. If NVDA is weighted .75 and returns 1% and XOM is .25 and returns -1%, the portfolio return should be 0.5%
+
+
+wide_df <- long_df %>%
+  dplyr::select(symbol, date, event, ret) %>% 
+  tidyr::pivot_wider(names_from = symbol,
+                     values_from = ret,
+                     names_prefix = "ret.") %>%
+  drop_na() %>% 
+  dplyr::mutate(ym = lubridate::format_ISO8601(date, precision = "ym"),
+                port_ret = NA
+                  )
+
+
+
+
+for(i in 1:nrow(wide_df)){
+  
+ tmp_value <- 0
+  
+  if(i == 1){
+    wide_df$port_ret[i] <- 0
+    
+  }else{
+    
+    for(j in 1:length(select(wide_df, starts_with("ret.")))){
+      
+     loop_symbol <-  wide_df %>% 
+        select(starts_with("ret.")) %>% 
+        rename_all(~stringr::str_replace(., "^ret.", "")) %>% 
+        names(.)%>%
+       .[j]
+        
+      weight_index <- match(loop_symbol, weights_df$symbol)
+      
+      col_char <- paste0("ret.", loop_symbol)
+      
+      loop_weight <- weights_df$weight[weight_index]
+      
+      tmp_ret <- wide_df[[col_char]][i]
+      
+      tmp_value <- tmp_value + loop_weight*tmp_ret
+      
+      
+      
+      
+    }
+      
+    wide_df$port_ret[i] <- tmp_value 
+    
+  }
+  
+  
+
+}
+
+wide_df %>%
+  dplyr::mutate(cumul_ret = cumsum(port_ret),
+                port_value = initial_portfolio_value + initial_portfolio_value*cumul_ret)
+
+
+#With YYYY-MM specified, we can summarize returns by month at the end of our process
+
+
+
+
 
 
 
 
 ```
 
-\
+
