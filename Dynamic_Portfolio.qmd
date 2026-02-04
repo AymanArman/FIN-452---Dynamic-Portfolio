@@ -69,8 +69,6 @@ wide_df <- long_df %>%
                   )
 
 
-
-
 for(i in 1:nrow(wide_df)){
   
  tmp_value <- 0
@@ -98,9 +96,6 @@ for(i in 1:nrow(wide_df)){
       
       tmp_value <- tmp_value + loop_weight*tmp_ret
       
-      
-      
-      
     }
       
     wide_df$port_ret[i] <- tmp_value 
@@ -111,12 +106,79 @@ for(i in 1:nrow(wide_df)){
 
 }
 
-wide_df %>%
+wide_df <- wide_df %>%
   dplyr::mutate(cumul_ret = cumsum(port_ret),
                 port_value = initial_portfolio_value + initial_portfolio_value*cumul_ret)
 
 
 #With YYYY-MM specified, we can summarize returns by month at the end of our process
+
+```
+
+```{r}
+
+# At this point, I want the code to create a new column for each ticker to show allocation amounts in dollars. We can also show transactions for each ticker if its all done in the same for loop.
+
+
+wide_df <- wide_df %>% 
+  dplyr::mutate(
+    across(.cols = starts_with("ret."),
+           .fns = ~NA,
+           .names = "{.col}_value_open") %>% 
+      rename_all(~stringr::str_replace(., "^ret.", "")),
+    
+    across(.cols = starts_with("ret."),
+           .fns = ~NA,
+           .names = "{.col}_alloc") %>% 
+      rename_all(~stringr::str_replace(., "^ret.", "")),
+    
+    across(.cols = starts_with("ret."),
+           .fns = ~NA,
+           .names = "{.col}_transaction") %>% 
+      rename_all(~stringr::str_replace(., "^ret.", ""))
+    
+    )
+
+
+for(i in 1:nrow(wide_df)){
+  
+  
+  for(j in 1:length(tickers)){
+    
+    weight_index <- match(tickers[j], weights_df$symbol)
+    
+    loop_weight <- weights_df$weight[weight_index]
+    
+    loop_ret_col <- paste0("ret.", tickers[j], "")
+    
+    
+    
+    loop_ret <- wide_df[[loop_ret_col]][i] 
+      
+    
+    
+    col_name <- paste0(tickers[j], "_value_open", "")
+    
+    col_name_alloc <- paste0(tickers[j], "_alloc", "")
+    
+    col_name_trans <- paste0(tickers[j], "_transaction", "")
+    
+    stock_val <- ifelse(i == 1, loop_weight * wide_df$port_value[i], wide_df$port_value[i-1] * loop_weight)*(1+loop_ret)
+    
+    stock_val_close <- loop_weight*wide_df$port_value[i]
+    
+    wide_df[[col_name]][i] <- stock_val
+    
+    wide_df[[col_name_alloc]][i] <- stock_val_close
+    
+    wide_df[[col_name_trans]][i] <- stock_val_close - stock_val
+    
+  }
+  
+  
+  
+  
+}
 
 
 
@@ -126,5 +188,3 @@ wide_df %>%
 
 
 ```
-
-
