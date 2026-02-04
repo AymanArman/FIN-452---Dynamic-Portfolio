@@ -26,7 +26,7 @@ library(gt)
 tickers <- c("NVDA", "XOM", "AMZN", "WM")  # Example tickers in various industries
 weights <- c(0.25, 0.25, 0.25, 0.25)  # Corresponding weights
 initial_portfolio_value <- 100000    # Starting portfolio value
-start_date = "2015-01-01"
+start_date = "2015-01-30"
 end_date = rollback(Sys.Date(), roll_to_first = FALSE) # returns the last day of the prior month
 
 
@@ -59,14 +59,17 @@ long_df <- tidyquant::tq_get(tickers,
 
 
 wide_df <- long_df %>%
-  dplyr::select(symbol, date, event, ret) %>% 
+  dplyr::mutate(ym = lubridate::format_ISO8601(date, precision = "ym")) %>%
+  dplyr::select(symbol, ym, ret) %>% 
+  dplyr::group_by(symbol, ym) %>% 
+  dplyr::summarise(ret = sum(ret, na.rm = TRUE)) %>% 
   tidyr::pivot_wider(names_from = symbol,
                      values_from = ret,
                      names_prefix = "ret.") %>%
   drop_na() %>% 
-  dplyr::mutate(ym = lubridate::format_ISO8601(date, precision = "ym"),
-                port_ret = NA
-                  )
+  dplyr::mutate(port_ret = NA
+                  ) 
+ 
 
 
 for(i in 1:nrow(wide_df)){
@@ -106,9 +109,27 @@ for(i in 1:nrow(wide_df)){
 
 }
 
+
 wide_df <- wide_df %>%
   dplyr::mutate(cumul_ret = cumsum(port_ret),
                 port_value = initial_portfolio_value + initial_portfolio_value*cumul_ret)
+
+
+event_ids <- long_df %>% 
+  dplyr::filter(event == 1) %>% 
+  dplyr::mutate(ym = lubridate::format_ISO8601(date, precision = "ym")) %>% 
+  dplyr::select(symbol, ym, open) %>% 
+  pivot_wider(names_from = symbol,
+              values_from = open,
+              names_prefix = "open.")
+
+
+
+
+
+wide_df <- wide_df %>% 
+  dplyr::left_join(event_ids, by = join_by( ym)) 
+
 
 
 #With YYYY-MM specified, we can summarize returns by month at the end of our process
@@ -176,10 +197,7 @@ for(i in 1:nrow(wide_df)){
   }
   
   
-  
-  
 }
-
 
 
 
